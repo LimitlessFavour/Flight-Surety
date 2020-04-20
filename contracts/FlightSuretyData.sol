@@ -12,6 +12,8 @@ contract FlightSuretyData {
     address private contractOwner;                                      // Account used to deploy contract
     bool private operational = true;                                    // Blocks all state changes throughout the contract if false
 
+    mapping(address => bool) private authorizedAppContracts;
+
     /********************************************************************************************/
     /*                                       EVENT DEFINITIONS                                  */
     /********************************************************************************************/
@@ -55,6 +57,11 @@ contract FlightSuretyData {
         require(msg.sender == contractOwner, "Caller is not contract owner");
         _;
     }
+       modifier requireAuthorizedCaller()
+    {
+        require(authorizedAppContracts[msg.sender] == true, "Caller is not authorised");
+        _;
+    }
 
     /********************************************************************************************/
     /*                                       UTILITY FUNCTIONS                                  */
@@ -89,6 +96,16 @@ contract FlightSuretyData {
         operational = mode;
     }
 
+    function setAppContractAuthorizationStatus(address appContract, bool status) external requireContractOwner
+    {
+        authorizedAppContracts[appContract] = status;
+    }
+
+     function getAppContractAuthorizationStatus(address caller) public view requireContractOwner returns (bool)
+    {
+        return authorizedAppContracts[caller];
+    }
+
     /********************************************************************************************/
     /*                                     SMART CONTRACT FUNCTIONS                             */
     /********************************************************************************************/
@@ -102,8 +119,9 @@ contract FlightSuretyData {
                             (   
                             )
                             external
-                            pure
+                            requireAuthorizedCaller
     {
+        //TODO 
     }
 
 

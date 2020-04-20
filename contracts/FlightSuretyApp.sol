@@ -25,6 +25,7 @@ contract FlightSuretyApp {
     uint8 private constant STATUS_CODE_LATE_OTHER = 50;
 
     address private contractOwner;          // Account used to deploy contract
+    bool private operational = true;
 
     struct Flight {
         bool isRegistered;
@@ -32,6 +33,8 @@ contract FlightSuretyApp {
         uint256 updatedTimestamp;        
         address airline;
     }
+
+    FlightSuretyData flightSuretyData;
     mapping(bytes32 => Flight) private flights;
 
  
@@ -50,7 +53,7 @@ contract FlightSuretyApp {
     modifier requireIsOperational() 
     {
          // Modify to call data contract's status
-        require(true, "Contract is currently not operational");  
+        require(operational, "Contract is currently not operational");
         _;  // All modifiers require an "_" which indicates where the function body will be added
     }
 
@@ -63,6 +66,8 @@ contract FlightSuretyApp {
         _;
     }
 
+  
+
     /********************************************************************************************/
     /*                                       CONSTRUCTOR                                        */
     /********************************************************************************************/
@@ -73,10 +78,12 @@ contract FlightSuretyApp {
     */
     constructor
                                 (
+                                   address dataContractAddress
                                 ) 
                                 public 
     {
         contractOwner = msg.sender;
+        flightSuretyData = FlightSuretyData(dataContractAddress);
     }
 
     /********************************************************************************************/
@@ -85,10 +92,15 @@ contract FlightSuretyApp {
 
     function isOperational() 
                             public 
-                            pure 
+                            view 
                             returns(bool) 
     {
-        return true;  // Modify to call data contract's status
+        return operational;  // Modify to call data contract's status
+    }
+
+     function setOperatingStatus (bool mode) external requireContractOwner
+    {
+        operational = mode;
     }
 
     /********************************************************************************************/
@@ -335,3 +347,6 @@ contract FlightSuretyApp {
 // endregion
 
 }   
+
+//Data Contract Interface.
+contract FlightSuretyData {}

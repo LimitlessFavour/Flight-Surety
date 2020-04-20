@@ -5,9 +5,16 @@ var BigNumber = require('bignumber.js');
 contract('Flight Surety Tests', async (accounts) => {
 
   var config;
+  firstAirline = accounts[0];
+  secondAirline = accounts[1];
+  thirdAirline = accounts[2];
+  fourthAirline = accounts[3];
+  fifthAirline = accounts[4];
+
+
   before('setup contract', async () => {
     config = await Test.Config(accounts);
-    await config.flightSuretyData.authorizeCaller(config.flightSuretyApp.address);
+    await config.flightSuretyData.setAppContractAuthorizationStatus(config.flightSuretyApp.address,true);
   });
 
   /****************************************************************************************/
@@ -17,8 +24,10 @@ contract('Flight Surety Tests', async (accounts) => {
   it(`(multiparty) has correct initial isOperational() value`, async function () {
 
     // Get operating status
-    let status = await config.flightSuretyData.isOperational.call();
-    assert.equal(status, true, "Incorrect initial operating status value");
+    let flightSuretyDataStatus = await config.flightSuretyData.isOperational.call();
+    let flightSuretyAppStatus = await config.flightSuretyApp.isOperational.call();
+    assert.equal(flightSuretyDataStatus, true, "Incorrect initial flightSuretyData operating status value");
+    assert.equal(flightSuretyAppStatus, true, "Incorrect initial FlightSuretyApp operating status value");
 
   });
 
