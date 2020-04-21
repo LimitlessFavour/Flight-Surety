@@ -24,7 +24,11 @@ contract FlightSuretyApp {
     uint8 private constant STATUS_CODE_LATE_TECHNICAL = 40;
     uint8 private constant STATUS_CODE_LATE_OTHER = 50;
 
+    uint8 private constant M = 4; //No of active airlines required before consensus
+
+
     address private contractOwner;          // Account used to deploy contract
+    address dataContractAddress;
     bool private operational = true;
 
     struct Flight {
@@ -32,10 +36,25 @@ contract FlightSuretyApp {
         uint8 statusCode;
         uint256 updatedTimestamp;        
         address airline;
+        string name;
     }
 
     FlightSuretyData flightSuretyData;
     mapping(bytes32 => Flight) private flights;
+
+    bytes32[] private flightKeys;
+
+
+  /********************************************************************************************/
+    /*                                       EVENTS                                           */
+    /********************************************************************************************/
+    event AirlineCreated(address airline);
+    event AirlineRegistered(address airline);
+    event AirlineActive(address airline);
+
+    event FlightStatusProcessed(address airline, string flight, uint8 statusCode);
+
+    event InsuranceBought(address passenger, bytes32 flightKey);
 
  
     /********************************************************************************************/
@@ -66,6 +85,18 @@ contract FlightSuretyApp {
         _;
     }
 
+     modifier onlyRegisteredAirlines()
+    {
+        require(flightSuretyData.getAirlineState(msg.sender) == 1, "Only registered airlines can perform this oepration");
+        _;
+    }
+
+      modifier onlyActiveAirlines()
+    {
+        require(flightSuretyData.getAirlineState(msg.sender) == 2, "Only active airlines can perform this oepration");
+        _;
+    }
+
   
 
     /********************************************************************************************/
@@ -78,11 +109,12 @@ contract FlightSuretyApp {
     */
     constructor
                                 (
-                                   address dataContractAddress
+                                   address contractAddress //data contract address
                                 ) 
                                 public 
     {
         contractOwner = msg.sender;
+        dataContractAddress = contractAddress;
         flightSuretyData = FlightSuretyData(dataContractAddress);
     }
 
@@ -114,14 +146,67 @@ contract FlightSuretyApp {
     */   
     function registerAirline
                             (   
+                                string airlineName
                             )
                             external
-                            pure
                             returns(bool success, uint256 votes)
     {
+        flightSuretyData.registerAirline(msg.sender, 0, airlineName);
+        emit AirlineCreated(msg.sender);
         return (success, 0);
     }
+     /**
+    * @dev Approve airline registration after creation - creating the airline.
+    *
+    */  
+       function approveAirlineRegistration
+                            (   
+                                address airline
+                            )
+                            external
+                            onlyActiveAirlines
+                            returns(bool success, uint256 votes)
+    {
+        require(flightSuretyData.getAirlineState(airline) == 0, "This airline hasn't been created");
+        uint256 activeAirlines = flightSuretyData.getActiveAirlines();
+        if(activeAirlines < M){ //No consensus required.
 
+          flightSuretyData.updateAirlineState(airline, 1);
+          emit AirlineRegistered(airline);
+
+          return(true,0);
+
+        }else{ 
+           //consensus required.
+           uint8 approvals = flightSuretyData.approveAirlineRegistration(airline, msg.sender);
+           if (approvals >= activeAirlines / 2) {
+
+               flightSuretyData.updateAirlineState(airline, 1);
+               emit AirlineRegistered(airline);
+
+               return(true,approvals);
+            }
+        }
+
+    } 
+     /**
+    * @dev Make airline active by paying.
+    *
+    */  
+      function payAirlineFee
+                            (   
+                            )
+                            external
+                            payable
+                            onlyRegisteredAirlines
+    {
+        require(msg.value == 10 ether, "You must pay 10 ether to complete");
+
+        dataContractAddress.transfer(msg.value);
+        flightSuretyData.updateAirlineState(msg.sender, 2);
+
+        emit AirlineActive(msg.sender);
+    }
 
    /**
     * @dev Register a future flight for insuring.
@@ -129,11 +214,16 @@ contract FlightSuretyApp {
     */  
     function registerFlight
                                 (
+                                    uint8 status,
+                                    string flight
                                 )
                                 external
-                                pure
+                                onlyActiveAirlines
     {
+     bytes32 flightKey = getFlightKey(msg.sender, flight, now);
 
+        flights[flightKey] = Flight(true,status, now, msg.sender, flight);
+        flightKeys.push(flightKey);
     }
     
    /**
@@ -148,8 +238,11 @@ contract FlightSuretyApp {
                                     uint8 statusCode
                                 )
                                 internal
-                                pure
     {
+        bytes32 flightKey = getFlightKey(airline, flight, timestamp);
+        flights[flightKey].statusCode = statusCode;
+
+        emit FlightStatusProcessed(airline, flight, statusCode);
     }
 
 
@@ -173,6 +266,53 @@ contract FlightSuretyApp {
 
         emit OracleRequest(index, airline, flight, timestamp);
     } 
+
+
+    function getFlightKey
+                        (
+                            address airline,
+                            string flight,
+                            uint256 timestamp
+                        )
+                        pure
+                        internal
+                        returns(bytes32) 
+    {
+        return keccak256(abi.encodePacked(airline, flight, timestamp));
+    }
+
+
+    function getFlightsCount(
+
+                            ) 
+                            external 
+                            view 
+                            returns(uint256 count)
+    {
+        return flightKeys.length;
+    }
+    
+    function buyInsurance(address airline, string flight, uint256 timestamp)
+    external payable
+    {
+        bytes32 flightKey = getFlightKey(airline, flight, timestamp);
+
+        require(bytes(flights[flightKey].name).length > 0, "Flight does not exist");
+
+        require(msg.value <= 1 ether, "Maximum amount is 1 ether");
+
+        dataContractAddress.transfer(msg.value);
+
+        uint256 payoutAmount = msg.value.mul(3).div(2);
+
+        flightSuretyData.createInsurance(msg.sender, flight, msg.value, payoutAmount);
+
+        emit InsuranceBought(msg.sender, flightKey);
+    }
+
+
+
+
 
 
 // region ORACLE MANAGEMENT
@@ -287,18 +427,6 @@ contract FlightSuretyApp {
     }
 
 
-    function getFlightKey
-                        (
-                            address airline,
-                            string flight,
-                            uint256 timestamp
-                        )
-                        pure
-                        internal
-                        returns(bytes32) 
-    {
-        return keccak256(abi.encodePacked(airline, flight, timestamp));
-    }
 
     // Returns array of three non-duplicating integers from 0-9
     function generateIndexes
@@ -348,5 +476,116 @@ contract FlightSuretyApp {
 
 }   
 
-//Data Contract Interface.
-contract FlightSuretyData {}
+
+/********************************************************************************************/
+/*                               DATA CONTRACT INTERFACE                                    */
+/********************************************************************************************/
+
+contract FlightSuretyData {
+    function getAirlineState(
+                                address airline
+                            )
+                            view
+                            returns(uint)
+    {
+        return 1;
+    }
+
+    function registerAirline(
+                            address airlineAddress,
+                            uint8 state,
+                            string name
+                            )
+                            view
+    {
+
+    }
+
+    function updateAirlineState
+                                (
+                                address airlineAddress,
+                                uint8 state
+                                )
+                                view
+    {
+
+    }
+
+    function getActiveAirlines(
+                              ) 
+                              view 
+                              returns(uint)
+    {
+        return 1;
+    }
+
+    function approveAirlineRegistration(
+                                        address airline, 
+                                        address approver
+                                        )
+                                        view
+                                        returns (uint8)
+    {
+        return 1;
+    }
+
+    function createInsurance(
+                            address passenger, 
+                            string flight, 
+                            uint256 amount, 
+                            uint256 payoutAmount
+                            )
+                            view
+    {
+
+    }
+
+    function getInsurance(
+                         address passenger, 
+                         string flight
+                         )
+                         view
+                         returns 
+                         (
+                         uint256 amount, 
+                         uint256 payoutAmount, 
+                         uint256 state
+                         )
+    {
+        amount = 1;
+        payoutAmount = 1;
+        state = 1;
+    }
+
+    function  claimInsurance
+                           (
+                            address passenger, 
+                            string flight
+                            )
+                            view
+    {
+
+    }
+
+    function getPassengerBalance
+                                (
+                                address passenger
+                                )
+                                view
+                                returns 
+                                (
+                                uint256
+                                )
+    {
+        return 1;
+    }
+
+    function payPassenger
+                        (address passenger
+                        )
+                        view
+    {
+
+    }
+
+}
